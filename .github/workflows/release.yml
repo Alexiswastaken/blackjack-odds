@@ -52,9 +52,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.platform }}
+          # Les fichiers `latest*.yml` sont le flux que lit le client de mise
+          # à jour : sans eux, l'app installée ne verra jamais la version.
           path: |
             release/*.dmg
             release/*.exe
+            release/*.zip
+            release/latest*.yml
           if-no-files-found: error
 
   release:

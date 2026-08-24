@@ -11,6 +11,7 @@ import {
   type DecisionResult,
   type Hand,
   type ShoeState,
+  type UnavailableReason,
 } from './types';
 import { cacheStats } from './context';
 
@@ -335,21 +336,21 @@ export function evaluate(
     action: Action,
     available: boolean,
     ev: number,
-    unavailableReason?: string,
+    unavailableReason?: UnavailableReason,
   ): void => {
     actions.push({ action, ev, available, unavailableReason });
   };
 
   if (bust) {
     push('stand', true, -1);
-    push('hit', false, -1, 'Main déjà bustée');
-    push('double', false, -1, 'Main déjà bustée');
-    push('split', false, -1, 'Main déjà bustée');
+    push('hit', false, -1, { code: 'busted' });
+    push('double', false, -1, { code: 'busted' });
+    push('split', false, -1, { code: 'busted' });
   } else if (natural) {
     push('stand', true, applyNoPeek(ctx.rules.blackjackPayout));
-    push('hit', false, 0, 'Blackjack naturel');
-    push('double', false, 0, 'Blackjack naturel');
-    push('split', false, 0, 'Blackjack naturel');
+    push('hit', false, 0, { code: 'blackjack' });
+    push('double', false, 0, { code: 'blackjack' });
+    push('split', false, 0, { code: 'blackjack' });
   } else {
     push('stand', true, applyNoPeek(standEV(total, upcard, counts, ctx)));
 
@@ -358,17 +359,17 @@ export function evaluate(
       'hit',
       canHit,
       canHit ? applyNoPeek(hitEV(total, soft, upcard, counts, ctx)) : -1,
-      canHit ? undefined : 'Total de 21',
+      canHit ? undefined : { code: 'total21' },
     );
 
     const twoCards = hand.cards.length === 2;
     const doubleRuleOk = doubleAllowedByRules(total, soft, ctx);
     const dasOk = !hand.isSplit || ctx.rules.doubleAfterSplit;
     const canDouble = twoCards && doubleRuleOk && dasOk;
-    let doubleReason: string | undefined;
-    if (!twoCards) doubleReason = 'Double réservé aux deux premières cartes';
-    else if (!dasOk) doubleReason = 'Double après split interdit';
-    else if (!doubleRuleOk) doubleReason = `Double limité aux totaux ${ctx.rules.doubleOn}`;
+    let doubleReason: UnavailableReason | undefined;
+    if (!twoCards) doubleReason = { code: 'doubleTwoCards' };
+    else if (!dasOk) doubleReason = { code: 'doubleAfterSplit' };
+    else if (!doubleRuleOk) doubleReason = { code: 'doubleLimited', rule: ctx.rules.doubleOn };
     push(
       'double',
       canDouble,
@@ -378,9 +379,9 @@ export function evaluate(
 
     const pair = isPair(hand);
     const canSplit = pair && !hand.isSplit;
-    let splitReason: string | undefined;
-    if (!pair) splitReason = 'Pas une paire';
-    else if (hand.isSplit) splitReason = 'Re-split non modélisé';
+    let splitReason: UnavailableReason | undefined;
+    if (!pair) splitReason = { code: 'notPair' };
+    else if (hand.isSplit) splitReason = { code: 'resplit' };
     push(
       'split',
       canSplit,

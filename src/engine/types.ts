@@ -76,13 +76,27 @@ export interface DealerOutcome {
   dist: DealerDistribution;
 }
 
+/**
+ * Raison d'indisponibilité, sous forme de code plutôt que de phrase.
+ *
+ * Le moteur ne connaît aucune langue : c'est l'interface qui traduit.
+ */
+export type UnavailableReason =
+  | { code: 'busted' }
+  | { code: 'blackjack' }
+  | { code: 'total21' }
+  | { code: 'doubleTwoCards' }
+  | { code: 'doubleAfterSplit' }
+  | { code: 'doubleLimited'; rule: Rules['doubleOn'] }
+  | { code: 'notPair' }
+  | { code: 'resplit' };
+
 export interface ActionEV {
   action: Action;
   ev: number;
   /** `false` si l'action est interdite par les règles ou l'état de la main. */
   available: boolean;
-  /** Raison de l'indisponibilité, à afficher dans l'UI. */
-  unavailableReason?: string;
+  unavailableReason?: UnavailableReason;
 }
 
 export interface DecisionResult {

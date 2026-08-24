@@ -6,15 +6,22 @@ directories:
   output: release
   buildResources: build
 
-# Le rendu est entièrement bundlé dans dist/ : aucune dépendance npm n'est
-# nécessaire à l'exécution, on garde donc le paquet minimal.
+# Le rendu est entièrement bundlé dans dist/. Seules les dépendances de
+# production (electron-updater) sont embarquées ; React et Zustand sont des
+# dépendances de build et n'ont rien à faire dans le paquet.
 files:
   - dist/**/*
   - electron/**/*
   - package.json
-  - '!node_modules/**/*'
 
 asar: true
+
+# Aucun espace dans les noms d'artefacts.
+#
+# GitHub remplace les espaces des noms d'assets par des points, alors que
+# `latest*.yml` les remplace par des tirets : le client de mise à jour
+# demanderait alors un fichier qui n'existe pas et recevrait un 404.
+artifactName: BlackjackOdds-${version}-${os}-${arch}.${ext}
 
 mac:
   category: public.app-category.utilities
@@ -23,11 +30,15 @@ mac:
       arch:
         - arm64
         - x64
+    # Le ZIP n'est pas destiné au téléchargement manuel : c'est le format que
+    # `latest-mac.yml` référence, sans lequel la *vérification* de mise à jour
+    # échoue sur macOS.
+    - target: zip
+      arch:
+        - arm64
+        - x64
   # Build non signé : pas de certificat Apple Developer.
   identity: null
-
-dmg:
-  artifactName: ${productName}-${version}-mac-${arch}.${ext}
 
 win:
   target:
@@ -39,6 +50,15 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  artifactName: ${productName}-Setup-${version}-win-${arch}.${ext}
+  artifactName: BlackjackOdds-Setup-${version}-win-${arch}.${ext}
 
-publish: null
+# Indique au client de mise à jour où chercher les nouvelles versions, et
+# fait générer `latest.yml` / `latest-mac.yml` à l'empaquetage.
+#
+# ATTENTION : `electron-updater` interroge l'API GitHub sans authentification.
+# Sur un dépôt privé, la vérification échoue (404) — elle n'aboutira que si le
+# dépôt est rendu public.
+publish:
+  provider: github
+  owner: Alexiswastaken
+  repo: blackjack-odds

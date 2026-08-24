@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, protocol, net, shell } = require('electron');
+const { registerUpdateHandlers } = require('./updates.cjs');
 
 const DIST = path.join(__dirname, '..', 'dist');
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
@@ -37,6 +38,8 @@ function registerAppProtocol() {
   });
 }
 
+let mainWindow = null;
+
 function createWindow() {
   const window = new BrowserWindow({
     width: 1280,
@@ -47,13 +50,18 @@ function createWindow() {
     title: 'Blackjack Odds',
     show: false,
     webPreferences: {
-      // L'app n'a besoin d'aucune API Electron : rien n'est exposé au renderer.
+      // Seul le pont de mise à jour est exposé, via contextBridge.
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
   });
 
+  mainWindow = window;
+  window.on('closed', () => {
+    if (mainWindow === window) mainWindow = null;
+  });
   window.once('ready-to-show', () => window.show());
 
   // Un lien externe s'ouvre dans le navigateur, jamais dans la fenêtre de l'app.
@@ -89,6 +97,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     if (!DEV_SERVER_URL) registerAppProtocol();
+    registerUpdateHandlers(() => mainWindow);
     createWindow();
 
     app.on('activate', () => {

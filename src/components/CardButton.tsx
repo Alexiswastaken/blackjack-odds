@@ -1,5 +1,6 @@
 import type { CardRank } from '../engine/types';
-import { RANK_LABEL, RANK_SUBLABEL } from './cardLabels';
+import { useT } from '../i18n';
+import { RANK_LABEL } from './cardLabels';
 
 interface CardButtonProps {
   rank: CardRank;
@@ -8,9 +9,18 @@ interface CardButtonProps {
   disabled?: boolean;
   /** Info secondaire affichée sous le compteur (probabilité de sortie). */
   hint?: string;
+  compact?: boolean;
 }
 
-export function CardButton({ rank, remaining, onClick, disabled, hint }: CardButtonProps) {
+export function CardButton({
+  rank,
+  remaining,
+  onClick,
+  disabled,
+  hint,
+  compact,
+}: CardButtonProps) {
+  const { t } = useT();
   const exhausted = remaining <= 0;
   const isDisabled = disabled || exhausted;
 
@@ -19,25 +29,31 @@ export function CardButton({ rank, remaining, onClick, disabled, hint }: CardBut
       type="button"
       onClick={() => onClick(rank)}
       disabled={isDisabled}
-      title={exhausted ? `Plus aucun ${RANK_LABEL[rank]} dans le sabot` : undefined}
+      title={exhausted ? t('card.exhausted', { rank: RANK_LABEL[rank] }) : undefined}
       className={[
-        'group flex flex-col items-center justify-center rounded-xl border px-2 py-3 transition',
-        'select-none tabular',
+        'group themed flex flex-col items-center justify-center rounded-xl border transition select-none tabular',
+        compact ? 'px-1.5 py-2' : 'px-2 py-3',
         isDisabled
-          ? 'cursor-not-allowed border-white/5 bg-white/[0.02] text-slate-600'
-          : 'cursor-pointer border-white/10 bg-white/[0.06] text-slate-100 hover:border-emerald-400/60 hover:bg-emerald-400/10 active:scale-[0.97]',
+          ? 'cursor-not-allowed border-line bg-surface text-ink-faint'
+          : 'cursor-pointer border-line bg-raised text-ink hover:border-accent-line hover:bg-accent-soft active:scale-[0.97]',
       ].join(' ')}
     >
-      <span className="text-2xl font-semibold leading-none">{RANK_LABEL[rank]}</span>
-      {RANK_SUBLABEL[rank] && (
-        <span className="mt-0.5 text-[10px] uppercase tracking-wider text-slate-500">
-          {RANK_SUBLABEL[rank]}
+      <span
+        className={`leading-none font-semibold ${compact ? 'text-lg' : 'text-2xl'}`}
+      >
+        {RANK_LABEL[rank]}
+      </span>
+      {!compact && (rank === 'T' || rank === 'A') && (
+        <span className="mt-0.5 text-[10px] tracking-wider uppercase text-ink-faint">
+          {t(rank === 'T' ? 'card.sub.ten' : 'card.sub.ace')}
         </span>
       )}
-      <span className="mt-2 text-xs font-medium text-slate-400 group-hover:text-emerald-200">
+      <span
+        className={`text-xs font-medium text-ink-muted group-hover:text-accent-ink ${compact ? 'mt-1' : 'mt-2'}`}
+      >
         {remaining}
       </span>
-      {hint && <span className="text-[10px] text-slate-500">{hint}</span>}
+      {hint && <span className="text-[10px] text-ink-faint">{hint}</span>}
     </button>
   );
 }

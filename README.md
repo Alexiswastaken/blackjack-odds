@@ -19,6 +19,7 @@ calculées sur ce sabot précis.
 - [Démarrage](#démarrage)
 - [Tests](#tests)
 - [Builds Mac et Windows](#builds-mac-et-windows)
+- [Mises à jour automatiques](#mises-à-jour-automatiques)
 - [Architecture](#architecture)
 - [Les algorithmes](#les-algorithmes)
 - [Le cache](#le-cache)
@@ -36,8 +37,14 @@ sort de table, quel qu'en soit le propriétaire. Le sabot restant est mis à jou
 et l'application affiche, pour chaque valeur, le nombre de cartes restantes et sa
 probabilité exacte de sortie (`R_v / R`).
 
+Le panneau **Mémoire du sabot** liste toutes les cartes vues depuis le mélange,
+dans l'ordre, avec l'indication de qui les a reçues. C'est la contrepartie
+visible du calcul exact : ce que le moteur « sait » du sabot est là, carte par
+carte, et il survit à un redémarrage de l'application.
+
 Boutons : **Nouveau sabot** (après un mélange), **Annuler la dernière carte**,
-sélecteur du nombre de jeux.
+choix du nombre de jeux (préréglages 1/2/4/6/8, ou n'importe quelle valeur de 1
+à 12).
 
 ### Onglet 2 — Décision de jeu
 
@@ -53,6 +60,23 @@ affiche, **sur le même sabot partagé** que l'onglet 1 :
 Un indicateur permanent en en-tête montre le nombre de cartes restantes sur le
 total du sabot, et la pénétration atteinte.
 
+### Onglet 3 — Multi-joueurs
+
+La même décision, mais pour une table entière. Vous déclarez le nombre de joueurs
+(1 à 7), désignez votre place, puis saisissez les cartes de chacun. Toutes ces
+cartes sortent du sabot partagé, ce qui resserre les probabilités de votre propre
+main.
+
+Les cartes des autres joueurs n'entrent dans le calcul que par ce canal — elles
+retirent des cartes du sabot — et c'est suffisant : leurs décisions n'ont aucun
+effet sur votre espérance. Concrètement, sur un 16 contre 6, voir quatre 10 partir
+chez les voisins fait passer votre risque de buster de 61,17 % à 60,66 %.
+
+### Onglet 4 — Paramètres
+
+Langue (français / anglais), thème (sombre / clair / système), mises à jour, et
+remise à zéro complète des données locales.
+
 ---
 
 ## Règles configurées
@@ -63,7 +87,7 @@ panneau **Règles de la table** ; les valeurs par défaut sont :
 | Règle | Défaut | Effet |
 |---|---|---|
 | Soft 17 | **S17** — le croupier reste sur A+6 | H17 augmente son bust et l'avantage de la maison |
-| Nombre de jeux | **6** | 1, 2, 6 ou 8 |
+| Nombre de jeux | **6** | Préréglages 1 / 2 / 4 / 6 / 8, ou toute valeur de 1 à 12 |
 | Double autorisé | **Toutes les mains** | Restreignable à 9–11 ou 10–11 |
 | Double après split (DAS) | **Oui** | Sans DAS, plusieurs paires ne se splittent plus |
 | As splittés | **Une seule carte**, pas de tirage ensuite | Règle quasi universelle |
@@ -114,7 +138,7 @@ npm test
 npm run test:watch
 ```
 
-Les tests couvrent le moteur seul, sans React ni DOM :
+Les tests couvrent le moteur, le store et les traductions — sans React ni DOM :
 
 | Fichier | Ce qui est vérifié |
 |---|---|
@@ -125,6 +149,8 @@ Les tests couvrent le moteur seul, sans React ni DOM :
 | `basic-strategy.test.ts` | **Reproduction de la stratégie de base publiée**, cellule par cellule |
 | `split.test.ts` | EV de split, cascade du sabot, règle des as splittés |
 | `cache.test.ts` | Non-régression : résultats identiques avec et sans mémoïsation |
+| `useGameStore.test.ts` | Mémoire du sabot, annulation, places multi-joueurs, bornes du nombre de jeux |
+| `i18n.test.ts` | Parité des deux dictionnaires, jetons d'interpolation, formes plurielles |
 
 ---
 
@@ -175,6 +201,30 @@ procédure de contournement.
 
 ---
 
+## Mises à jour automatiques
+
+L'onglet **Paramètres** interroge les releases GitHub de ce dépôt et propose
+d'installer une version plus récente. Deux limites structurelles sont gérées
+explicitement plutôt que subies :
+
+**1 · macOS n'installe pas de mise à jour sur une app non signée.** Squirrel.Mac
+exige une signature Developer ID ; sans certificat, l'installation échouerait au
+redémarrage. L'application le sait : sur macOS, elle vérifie la version, annonce
+celle qui est disponible, puis propose d'ouvrir la page des releases pour
+télécharger le `.dmg` à la main. Sur Windows, le téléchargement et l'installation
+se font depuis l'application.
+
+**2 · Le client interroge l'API GitHub sans jeton.** Un dépôt privé renvoie donc
+une erreur à la vérification. Embarquer un jeton dans l'application est exclu —
+il serait extractible par n'importe qui. **La vérification de mise à jour ne
+fonctionnera que si le dépôt est public.** Tant qu'il est privé, l'onglet affiche
+l'erreur renvoyée par GitHub au lieu de prétendre que tout est à jour.
+
+Le flux est alimenté par les fichiers `latest.yml` et `latest-mac.yml` générés à
+l'empaquetage et attachés à la release par le workflow.
+
+---
+
 ## Architecture
 
 ```
@@ -188,10 +238,12 @@ src/
     ev.ts               EV par action et recommandation finale
     context.ts          caches et compteurs
   worker/     Web Worker exposant le moteur de façon asynchrone
-  store/      état partagé Zustand (sabot, règles, main) + persistance
-  hooks/      pont React ↔ Worker
-  components/ les deux vues
-electron/     processus principal Electron
+  store/      état partagé Zustand (sabot, règles, mains, réglages) + persistance
+  i18n/       dictionnaires français / anglais et interpolation
+  hooks/      ponts React ↔ Worker, thème, mises à jour
+  desktop/    contrat typé du pont Electron (absent sur le web)
+  components/ les quatre vues et leurs primitives
+electron/     processus principal, preload et client de mise à jour
 ```
 
 **Pourquoi ce découpage :**
@@ -201,9 +253,14 @@ electron/     processus principal Electron
 - Le **Worker** isole les calculs lourds : une évaluation avec cascade de split
   prend plusieurs centaines de millisecondes, ce qui gèlerait l'interface si
   c'était fait sur le thread principal.
-- Le **store Zustand** partage un unique sabot entre les deux onglets, sans
+- Le **store Zustand** partage un unique sabot entre toutes les vues, sans
   *prop-drilling*. Il est persisté dans `localStorage` pour survivre à un
   rechargement accidentel — aucun backend, aucune donnée ne quitte la machine.
+- Les **couleurs** passent toutes par des variables sémantiques (`bg-surface`,
+  `text-ink-muted`…) redéfinies sur `[data-theme]`. Basculer clair/sombre réécrit
+  une douzaine de variables au lieu de doubler chaque classe d'un préfixe `dark:`.
+- Le **moteur ne connaît aucune langue** : une action indisponible renvoie un
+  code (`{ code: 'resplit' }`), traduit par l'interface.
 
 ---
 
@@ -345,5 +402,5 @@ et les paris annexes.
 ## Stack
 
 TypeScript strict · Vite · React · Zustand · Tailwind CSS · Web Worker · Vitest ·
-Electron. Aucun backend, aucune base de données : tout l'état est local et
-éphémère.
+Electron · electron-updater. Aucun backend, aucune base de données, aucune
+librairie d'i18n ni de graphes : tout l'état est local et éphémère.

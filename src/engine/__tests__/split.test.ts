@@ -91,6 +91,6 @@ describe('re-split', () => {
     const result = evaluate(shoe, { cards: ['8', '8'], isSplit: true }, 'T', createContext(DEFAULT_RULES));
     const split = result.actions.find((a) => a.action === 'split')!;
     expect(split.available).toBe(false);
-    expect(split.unavailableReason).toMatch(/Re-split/);
+    expect(split.unavailableReason).toEqual({ code: 'resplit' });
   }, 120000);
 });

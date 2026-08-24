@@ -1,72 +1,9 @@
-import { useGameStore } from '../store/useGameStore';
+import { useT } from '../i18n';
 import type { Rules } from '../engine/types';
+import { MAX_DECKS, MIN_DECKS, fullShoeSize, useGameStore } from '../store/useGameStore';
+import { Segmented, Toggle } from './ui';
 
-const DECK_OPTIONS = [1, 2, 6, 8];
-
-function Toggle({
-  label,
-  hint,
-  checked,
-  onChange,
-}: {
-  label: string;
-  hint?: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-start gap-3">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 size-4 accent-emerald-400"
-      />
-      <span>
-        <span className="text-sm text-slate-200">{label}</span>
-        {hint && <span className="block text-[11px] text-slate-500">{hint}</span>}
-      </span>
-    </label>
-  );
-}
-
-function Segmented<T extends string | number>({
-  label,
-  hint,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  hint?: string;
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div>
-      <div className="text-sm text-slate-200">{label}</div>
-      {hint && <div className="text-[11px] text-slate-500">{hint}</div>}
-      <div className="mt-2 inline-flex rounded-lg border border-white/10 bg-white/[0.04] p-0.5">
-        {options.map((option) => (
-          <button
-            key={String(option.value)}
-            type="button"
-            onClick={() => onChange(option.value)}
-            className={[
-              'rounded-md px-3 py-1 text-xs font-medium transition',
-              option.value === value
-                ? 'bg-emerald-400 text-emerald-950'
-                : 'text-slate-400 hover:text-slate-100',
-            ].join(' ')}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+const PRESET_DECKS = [1, 2, 4, 6, 8];
 
 /**
  * Réglages de la table. Chacun change réellement l'EV — c'est pourquoi ils sont
@@ -77,30 +14,56 @@ export function RulesPanel() {
   const rules = useGameStore((s) => s.rules);
   const setDecks = useGameStore((s) => s.setDecks);
   const setRules = useGameStore((s) => s.setRules);
+  const { t, plural } = useT();
 
   const update = (patch: Partial<Rules>) => setRules(patch);
 
+  /** Le sabot n'est réinitialisé qu'après confirmation s'il est déjà entamé. */
+  const changeDecks = (decks: number) => {
+    if (decks === shoe.decks) return;
+    const untouched = shoe.totalRemaining === fullShoeSize(shoe.decks);
+    if (untouched || confirm(t('rules.decks.confirm'))) setDecks(decks);
+  };
+
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      <Segmented
-        label="Nombre de jeux"
-        hint="Change de sabot et réinitialise le suivi."
-        value={shoe.decks}
-        options={DECK_OPTIONS.map((d) => ({ value: d, label: `${d}` }))}
-        onChange={(decks) => {
-          if (decks === shoe.decks) return;
-          if (
-            shoe.totalRemaining === shoe.decks * 52 ||
-            confirm('Changer le nombre de jeux réinitialise le sabot. Continuer ?')
-          ) {
-            setDecks(decks);
-          }
-        }}
-      />
+      <div>
+        <Segmented
+          label={t('rules.decks')}
+          hint={t('rules.decks.help')}
+          value={PRESET_DECKS.includes(shoe.decks) ? shoe.decks : -1}
+          options={[
+            ...PRESET_DECKS.map((d) => ({ value: d, label: String(d) })),
+            { value: -1, label: t('rules.decks.custom') },
+          ]}
+          onChange={(value) => {
+            // « Autre » n'est pas un nombre de jeux : c'est le champ libre qui prend le relais.
+            if (value !== -1) changeDecks(value);
+          }}
+        />
+        <div className="mt-3 flex items-center gap-3">
+          <input
+            type="number"
+            min={MIN_DECKS}
+            max={MAX_DECKS}
+            value={shoe.decks}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              if (Number.isFinite(value) && value >= MIN_DECKS && value <= MAX_DECKS) {
+                changeDecks(value);
+              }
+            }}
+            className="themed w-20 rounded-lg border border-line bg-raised px-2 py-1 text-sm text-ink tabular"
+          />
+          <span className="text-xs text-ink-subtle">
+            {t('rules.decks.total', { cards: plural('unit.card', fullShoeSize(shoe.decks)) })}
+          </span>
+        </div>
+      </div>
 
       <Segmented
-        label="Soft 17"
-        hint="S17 : le croupier reste sur A+6. H17 : il tire."
+        label={t('rules.soft17')}
+        hint={t('rules.soft17.help')}
         value={rules.soft17}
         options={[
           { value: 'S17', label: 'S17' },
@@ -110,18 +73,18 @@ export function RulesPanel() {
       />
 
       <Segmented
-        label="Double autorisé sur"
+        label={t('rules.doubleOn')}
         value={rules.doubleOn}
         options={[
-          { value: 'any', label: 'Tout' },
-          { value: '9-11', label: '9–11' },
-          { value: '10-11', label: '10–11' },
+          { value: 'any', label: t('rules.doubleOn.any') },
+          { value: '9-11', label: t('rules.doubleOn.9-11') },
+          { value: '10-11', label: t('rules.doubleOn.10-11') },
         ]}
         onChange={(doubleOn) => update({ doubleOn })}
       />
 
       <Segmented
-        label="Paiement du blackjack"
+        label={t('rules.payout')}
         value={rules.blackjackPayout}
         options={[
           { value: 1.5, label: '3:2' },
@@ -132,12 +95,12 @@ export function RulesPanel() {
 
       <div className="space-y-3">
         <Toggle
-          label="Double après split (DAS)"
+          label={t('rules.das')}
           checked={rules.doubleAfterSplit}
           onChange={(doubleAfterSplit) => update({ doubleAfterSplit })}
         />
         <Toggle
-          label="Une seule carte sur les as splittés"
+          label={t('rules.splitAces')}
           checked={rules.oneCardAfterSplitAces}
           onChange={(oneCardAfterSplitAces) => update({ oneCardAfterSplitAces })}
         />
@@ -145,14 +108,14 @@ export function RulesPanel() {
 
       <div className="space-y-3">
         <Toggle
-          label="Le croupier vérifie son blackjack (peek)"
-          hint="Décoché : règle européenne, la mise initiale est perdue face à un blackjack."
+          label={t('rules.peek')}
+          hint={t('rules.peek.help')}
           checked={rules.peek}
           onChange={(peek) => update({ peek })}
         />
         <Toggle
-          label="Cascade du sabot entre les mains splittées"
-          hint="Plus exact, nettement plus lent. L'écart typique est inférieur à 0,001."
+          label={t('rules.cascade')}
+          hint={t('rules.cascade.help')}
           checked={rules.splitCascade}
           onChange={(splitCascade) => update({ splitCascade })}
         />

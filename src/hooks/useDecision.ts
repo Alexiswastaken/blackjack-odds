@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { EngineClient, StaleRequestError } from '../worker/client';
-import type { DecisionResult } from '../engine/types';
+import type { CardRank, DecisionResult } from '../engine/types';
 import { useGameStore } from '../store/useGameStore';
 
 /**
@@ -25,17 +25,20 @@ export interface DecisionState {
 }
 
 /**
- * Évalue la main courante dans le Worker dès qu'elle est complète.
+ * Évalue une main dans le Worker dès qu'elle est complète.
  *
- * Chaque changement de sabot, de main ou de règles relance un calcul ; les
- * résultats périmés sont ignorés au retour.
+ * La main est passée en paramètre plutôt que lue dans le store : la vue solo et
+ * la vue multi-joueurs évaluent des mains différentes, mais toutes deux sur le
+ * *même* sabot partagé — ce qui est précisément l'intérêt de saisir les cartes
+ * des autres joueurs.
  */
-export function useDecision(): DecisionState {
+export function useDecisionFor(
+  playerCards: CardRank[],
+  dealerUpcard: CardRank | null,
+  isSplitHand: boolean,
+): DecisionState {
   const shoe = useGameStore((s) => s.shoe);
   const rules = useGameStore((s) => s.rules);
-  const playerCards = useGameStore((s) => s.playerCards);
-  const dealerUpcard = useGameStore((s) => s.dealerUpcard);
-  const isSplitHand = useGameStore((s) => s.isSplitHand);
   const shoeGeneration = useGameStore((s) => s.shoeGeneration);
 
   const [state, setState] = useState<DecisionState>({
