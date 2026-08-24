@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-felt-950: #041b12;
+  --color-felt-900: #06271a;
+  --color-felt-800: #0a3626;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-felt-950);
+  color: var(--color-slate-100);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Les chiffres de probabilité changent en continu : la chasse fixe évite que
+   les colonnes tressautent à chaque clic. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
