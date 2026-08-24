@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cacheStats, clearCaches, createContext, type EngineContext } from '../context';
-import { evaluate } from '../ev';
+import { evaluate } from '../decide';
 import { dealerOutcome } from '../dealer';
 import { createShoe, drawFromShoe, toCounts } from '../shoe';
 import { DEFAULT_RULES, type CardRank } from '../types';
@@ -17,6 +17,7 @@ function uncachedContext(rules = DEFAULT_RULES): EngineContext {
   ctx.dealerPlay = new NoCacheMap();
   ctx.dealerOutcome = new NoCacheMap();
   ctx.playerHit = new NoCacheMap();
+  ctx.playerHitOutcome = new NoCacheMap();
   return ctx;
 }
 
@@ -42,7 +43,13 @@ describe('non-régression du cache', () => {
 
       expect(cached.recommended).toBe(uncached.recommended);
       cached.actions.forEach((action, i) => {
-        expect(action.ev).toBeCloseTo(uncached.actions[i].ev, 12);
+        const reference = uncached.actions[i];
+        expect(action.ev).toBeCloseTo(reference.ev, 12);
+        // Les probabilités d'issue ont leur propre cache : elles doivent être
+        // couvertes par la non-régression au même titre que l'EV.
+        expect(action.outcome.win).toBeCloseTo(reference.outcome.win, 12);
+        expect(action.outcome.push).toBeCloseTo(reference.outcome.push, 12);
+        expect(action.outcome.lose).toBeCloseTo(reference.outcome.lose, 12);
       });
       expect(cached.dealerDistribution).toEqual(uncached.dealerDistribution);
     }

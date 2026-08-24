@@ -4,4 +4,6 @@ export * from './hand';
 export * from './hypergeometric';
 export * from './dealer';
 export * from './ev';
+export * from './outcome';
+export * from './decide';
 export * from './context';

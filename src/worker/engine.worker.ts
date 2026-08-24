@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { cacheStats, clearCaches, createContext, type EngineContext } from '../engine/context';
-import { evaluate } from '../engine/ev';
+import { evaluate } from '../engine/decide';
 import type { Rules } from '../engine/types';
 import type { WorkerRequest, WorkerResponse } from './protocol';
 

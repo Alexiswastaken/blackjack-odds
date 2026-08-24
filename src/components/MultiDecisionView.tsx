@@ -60,11 +60,10 @@ export function MultiDecisionView() {
 
   const { t, plural, language } = useT();
   const myHand = multi.hands[multi.mySeat] ?? NO_CARDS;
-  const state = useDecisionFor(myHand, multi.dealerUpcard, false);
+  // La carte retournée porte la décision ; les suivantes ne font que vider le sabot.
+  const state = useDecisionFor(myHand, multi.dealerCards[0] ?? null, false);
 
   const probabilities = nextCardProbabilities(shoe);
-  const dealerFull = multi.dealerUpcard !== null;
-  const gridDisabled = multi.activeTarget.kind === 'dealer' && dealerFull;
 
   const othersSeen = multi.hands.reduce(
     (sum, hand, index) => (index === multi.mySeat ? sum : sum + hand.length),
@@ -113,7 +112,12 @@ export function MultiDecisionView() {
             <span className="w-24 shrink-0 text-sm font-medium text-warn-ink">
               {t('multi.dealer')}
             </span>
-            <HandChips cards={multi.dealerUpcard ? [multi.dealerUpcard] : []} />
+            <HandChips cards={multi.dealerCards} />
+            {multi.dealerCards.length > 0 && (
+              <span className="tabular ml-auto text-sm text-ink-muted">
+                {handTotal(multi.dealerCards).total}
+              </span>
+            )}
           </button>
 
           {multi.hands.map((hand, seat) => {
@@ -158,14 +162,16 @@ export function MultiDecisionView() {
 
         <div>
           <SectionTitle>{t('multi.cardGrid')}</SectionTitle>
-          <Hint>{t('multi.activeHelp', { target: targetLabel })}</Hint>
+          <Hint>
+            {t('multi.activeHelp', { target: targetLabel })}
+            {multi.activeTarget.kind === 'dealer' && ` — ${t('multi.dealerHelp')}`}
+          </Hint>
           <div className="mt-3 grid grid-cols-5 gap-2 sm:grid-cols-10">
             {RANKS.map((rank) => (
               <CardButton
                 key={rank}
                 rank={rank}
                 remaining={shoe.remaining[rank]}
-                disabled={gridDisabled}
                 hint={formatPercent(probabilities[rank], language, 1)}
                 onClick={(r) =>
                   playCard(

@@ -8,6 +8,7 @@ export function originLabel(origin: CardOrigin, t: Translator, mySeat: number): 
       return t.t('origin.shoe');
     case 'solo-player':
       return t.t('origin.solo.player');
+
     case 'solo-dealer':
       return t.t('origin.solo.dealer');
     case 'multi-dealer':

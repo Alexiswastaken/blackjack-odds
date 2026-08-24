@@ -1,59 +1,125 @@
-import { handTotal, isPair } from '../engine/hand';
+import { settleRound } from '../engine/decide';
+import { handTotal } from '../engine/hand';
 import { nextCardProbabilities } from '../engine/shoe';
-import { RANKS } from '../engine/types';
+import { RANKS, type CardRank } from '../engine/types';
 import { useDecisionFor } from '../hooks/useDecision';
 import { useT } from '../i18n';
 import { useGameStore } from '../store/useGameStore';
 import { CardButton } from './CardButton';
 import { RANK_LABEL, formatPercent } from './cardLabels';
 import { DecisionResultPanel } from './DecisionResult';
+import { SettlementPanel } from './SettlementPanel';
 import { Button, Hint, SectionTitle } from './ui';
+
+/** Référence stable pour une main vide : un tableau neuf ferait boucler l'effet. */
+const NO_CARDS: CardRank[] = [];
+
+function Chips({ cards, tone }: { cards: readonly CardRank[]; tone: string }) {
+  return (
+    <>
+      {cards.map((rank, index) => (
+        <span
+          key={`${rank}-${index}`}
+          className={`tabular rounded-lg px-2.5 py-1 text-sm font-medium ${tone}`}
+        >
+          {RANK_LABEL[rank]}
+        </span>
+      ))}
+    </>
+  );
+}
 
 export function DecisionView() {
   const shoe = useGameStore((s) => s.shoe);
-  const playerCards = useGameStore((s) => s.playerCards);
-  const dealerUpcard = useGameStore((s) => s.dealerUpcard);
-  const isSplitHand = useGameStore((s) => s.isSplitHand);
+  const rules = useGameStore((s) => s.rules);
+  const playerHands = useGameStore((s) => s.playerHands);
+  const activeHand = useGameStore((s) => s.activeHand);
+  const isSplit = useGameStore((s) => s.isSplit);
+  const dealerCards = useGameStore((s) => s.dealerCards);
   const playCard = useGameStore((s) => s.playCard);
   const undo = useGameStore((s) => s.undo);
   const clearHand = useGameStore((s) => s.clearHand);
-  const startSplitHand = useGameStore((s) => s.startSplitHand);
-  const setIsSplitHand = useGameStore((s) => s.setIsSplitHand);
+  const splitHand = useGameStore((s) => s.splitHand);
+  const setActiveHand = useGameStore((s) => s.setActiveHand);
 
   const { t, language } = useT();
-  const state = useDecisionFor(playerCards, dealerUpcard, isSplitHand);
+
+  const hand = playerHands[activeHand] ?? NO_CARDS;
+  // La carte retournée porte la décision ; les suivantes ne font que vider le sabot.
+  const upcard = dealerCards[0] ?? null;
+
+  const state = useDecisionFor(hand, upcard, isSplit);
+  const settlement = settleRound(hand, dealerCards, rules);
+  const settled = settlement.result !== 'pending';
 
   const probabilities = nextCardProbabilities(shoe);
-  const total = handTotal(playerCards);
-  const canSplitHand = isPair({ cards: playerCards, isSplit: isSplitHand }) && !isSplitHand;
+  const total = handTotal(hand);
+  const dealerTotal = handTotal(dealerCards);
+
+  const canSplit =
+    !isSplit && playerHands.length === 1 && hand.length === 2 && hand[0] === hand[1];
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)]">
       <section className="space-y-6">
         <div>
           <SectionTitle>{t('decision.dealer.title')}</SectionTitle>
-          <Hint>{t(dealerUpcard ? 'decision.dealer.help.set' : 'decision.dealer.help.empty')}</Hint>
+          <Hint>
+            {t(dealerCards.length === 0 ? 'decision.dealer.help.empty' : 'decision.dealer.help.more')}
+          </Hint>
           <div className="mt-3 grid grid-cols-5 gap-2 sm:grid-cols-10">
             {RANKS.map((rank) => (
               <CardButton
                 key={rank}
                 rank={rank}
                 remaining={shoe.remaining[rank]}
-                disabled={dealerUpcard !== null}
                 onClick={(r) => playCard(r, { kind: 'solo-dealer' })}
               />
             ))}
           </div>
-          {dealerUpcard && (
-            <div className="mt-3 text-sm text-warn-ink">
-              {t('decision.dealer.value', { card: RANK_LABEL[dealerUpcard] })}
+          {dealerCards.length > 0 && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Chips cards={dealerCards} tone="bg-warn-soft text-warn-ink" />
+              <span className="tabular text-sm text-ink-muted">
+                {t('decision.dealer.value', { total: dealerTotal.total })}
+                {dealerTotal.soft && (
+                  <span className="ml-1 text-xs text-ink-subtle">{t('decision.soft')}</span>
+                )}
+              </span>
             </div>
           )}
         </div>
 
         <div>
-          <SectionTitle>{t('decision.hand.title')}</SectionTitle>
+          <SectionTitle>{t(isSplit ? 'decision.hands.title' : 'decision.hand.title')}</SectionTitle>
           <Hint>{t('decision.hand.help')}</Hint>
+
+          {isSplit && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {playerHands.map((cards, index) => {
+                const handSum = handTotal(cards);
+                return (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => setActiveHand(index)}
+                    className={[
+                      'themed tabular rounded-lg border px-3 py-1.5 text-sm transition',
+                      index === activeHand
+                        ? 'border-accent-line bg-accent-soft text-accent-ink'
+                        : 'border-line bg-surface text-ink-muted hover:border-line-strong',
+                    ].join(' ')}
+                  >
+                    {t('decision.hand.label', { index: index + 1 })}
+                    {cards.length > 0 && (
+                      <span className="ml-2 font-semibold">{handSum.total}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           <div className="mt-3 grid grid-cols-5 gap-2 sm:grid-cols-10">
             {RANKS.map((rank) => (
               <CardButton
@@ -61,27 +127,22 @@ export function DecisionView() {
                 rank={rank}
                 remaining={shoe.remaining[rank]}
                 hint={formatPercent(probabilities[rank], language, 1)}
-                onClick={(r) => playCard(r, { kind: 'solo-player' })}
+                onClick={(r) => playCard(r, { kind: 'solo-player', hand: activeHand })}
               />
             ))}
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            {playerCards.map((rank, index) => (
-              <span
-                key={`${rank}-${index}`}
-                className="tabular rounded-lg bg-info-soft px-2.5 py-1 text-sm font-medium text-info-ink"
-              >
-                {RANK_LABEL[rank]}
-              </span>
-            ))}
-            {playerCards.length > 0 && (
+            <Chips cards={hand} tone="bg-info-soft text-info-ink" />
+            {hand.length > 0 && (
               <span className="tabular text-sm text-ink-muted">
                 = <span className="font-semibold text-ink">{total.total}</span>
-                {total.soft && <span className="ml-1 text-xs text-ink-subtle">{t('decision.soft')}</span>}
+                {total.soft && (
+                  <span className="ml-1 text-xs text-ink-subtle">{t('decision.soft')}</span>
+                )}
               </span>
             )}
-            {isSplitHand && (
+            {isSplit && (
               <span className="rounded-md bg-alt-soft px-2 py-0.5 text-[11px] text-alt-ink">
                 {t('decision.splitBadge')}
               </span>
@@ -92,20 +153,23 @@ export function DecisionView() {
         <div className="flex flex-wrap gap-2">
           <Button onClick={undo}>{t('shoe.undo')}</Button>
           <Button onClick={clearHand}>{t('decision.nextHand')}</Button>
-          {canSplitHand && (
-            <Button variant="alt" onClick={startSplitHand}>
-              {t('decision.playSplit')}
+          {canSplit && (
+            <Button variant="alt" onClick={splitHand}>
+              {t('decision.split.action')}
             </Button>
           )}
-          {isSplitHand && (
-            <Button onClick={() => setIsSplitHand(false)}>{t('decision.notSplit')}</Button>
-          )}
         </div>
-        <p className="text-xs text-ink-faint">{t('decision.nextHand.note')}</p>
+        <p className="text-xs text-ink-faint">
+          {canSplit ? t('decision.split.help') : t('decision.nextHand.note')}
+        </p>
       </section>
 
       <section>
-        <DecisionResultPanel state={state} incompleteMessage={t('decision.incomplete')} />
+        {settled ? (
+          <SettlementPanel settlement={settlement} onNext={clearHand} />
+        ) : (
+          <DecisionResultPanel state={state} incompleteMessage={t('decision.incomplete')} />
+        )}
       </section>
     </div>
   );

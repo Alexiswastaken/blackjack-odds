@@ -48,14 +48,35 @@ choix du nombre de jeux (préréglages 1/2/4/6/8, ou n'importe quelle valeur de 
 
 ### Onglet 2 — Décision de jeu
 
-Vous renseignez votre main et la carte visible du croupier. L'application
-affiche, **sur le même sabot partagé** que l'onglet 1 :
+Vous renseignez votre main et la main du croupier. L'application affiche,
+**sur le même sabot partagé** que l'onglet 1 :
 
 - le total de votre main (avec indication *soft*) ;
 - la probabilité exacte de buster en tirant une carte ;
 - l'EV de chaque action disponible — Tirer, Rester, Doubler, Splitter ;
+- **les chances de gagner, d'égaliser et de perdre** de chacune de ces actions ;
 - la distribution complète des issues du croupier (17, 18, 19, 20, 21, bust) ;
 - la recommandation, c'est-à-dire l'action d'EV maximale.
+
+**La main du croupier est complète, pas seulement sa carte retournée.** La carte
+visible porte la décision, mais la carte cachée révélée et chacun de ses tirages
+se saisissent aussi : ce sont des cartes vues, elles doivent sortir du sabot.
+Quand sa main est connue et arrêtée, le panneau bascule sur le règlement du tour
+— gagné, perdu ou égalité — plutôt que d'afficher une recommandation périmée.
+
+**Un split donne deux mains, suivies et conseillées séparément.** Le bouton
+« Splitter la paire » sépare les deux cartes ; un sélecteur permet de passer de
+l'une à l'autre, chacune avec son propre total, sa propre recommandation et son
+propre règlement.
+
+#### EV et chances de gain ne mesurent pas la même chose
+
+L'EV dit ce que rapporte une action, les pourcentages à quelle fréquence elle
+réussit. Les deux divergent dès que la mise change : sur un soft 19 contre un 6,
+doubler et tirer gagnent exactement aussi souvent (58,6 %), mais doubler vaut
++0,481 contre +0,240 — c'est la mise engagée qui double, pas la fréquence des
+victoires. À l'inverse, rester gagne bien plus souvent (69,4 %) pour une EV à
+peine supérieure. Les deux chiffres sont affichés côte à côte pour cette raison.
 
 Un indicateur permanent en en-tête montre le nombre de cartes restantes sur le
 total du sabot, et la pénétration atteinte.
@@ -148,6 +169,7 @@ Les tests couvrent le moteur, le store et les traductions — sans React ni DOM 
 | `dealer.test.ts` | Distributions du croupier contre les tables publiées, bascule S17/H17 |
 | `basic-strategy.test.ts` | **Reproduction de la stratégie de base publiée**, cellule par cellule |
 | `split.test.ts` | EV de split, cascade du sabot, règle des as splittés |
+| `outcome.test.ts` | Chances de gain/égalité/perte, et règlement d'un tour terminé |
 | `cache.test.ts` | Non-régression : résultats identiques avec et sans mémoïsation |
 | `useGameStore.test.ts` | Mémoire du sabot, annulation, places multi-joueurs, bornes du nombre de jeux |
 | `i18n.test.ts` | Parité des deux dictionnaires, jetons d'interpolation, formes plurielles |
@@ -289,6 +311,17 @@ comme un 21 ordinaire.
 - *Splitter* : deux sous-mains jouées récursivement, avec double après split si
   la règle l'autorise.
 
+**4 bis · Chances de gain par action.** Les issues (gain / égalité / perte) sont
+propagées le long de la branche que l'EV désigne comme optimale, dans une
+récursion parallèle. Elles ne servent jamais à décider — l'EV reste seule à
+définir le jeu optimal — mais elles répondent à une autre question : à quelle
+fréquence cette action l'emporte ?
+
+Ce calcul est vérifié contre l'EV par une invariante que les tests imposent :
+rester et tirer engagent une unité de mise, donc `EV = gain − perte` ; doubler en
+engage deux, donc `EV = 2 × (gain − perte)`. Les deux calculs étant menés
+séparément, leur concordance au douzième chiffre est un contrôle sérieux.
+
 À chaque niveau, le sabot est décrémenté en cascade — c'est ce qui rend le calcul
 composition-dépendant plutôt que basé sur des tables figées.
 
@@ -394,8 +427,14 @@ dépend.
    à la distribution du croupier calculée sur le sabot au moment où *elle*
    s'arrête, et non sur le sabot final commun aux deux mains.
 
+5. **Chances d'un split.** Les deux mains d'un split se règlent séparément :
+   l'une peut gagner pendant que l'autre perd. Les pourcentages affichés sont
+   donc ceux d'*une* main prise au hasard parmi les deux, et non ceux du split
+   pris comme un tout.
+
 **Ce qui n'est pas implémenté du tout :** l'abandon (*surrender*), l'assurance,
-et les paris annexes.
+et les paris annexes. Le re-split reste hors modèle, et la vue multi-joueurs
+suit une main par place — le split est géré dans l'onglet « Décision de jeu ».
 
 ---
 

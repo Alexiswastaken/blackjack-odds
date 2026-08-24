@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createContext } from '../context';
-import { evaluate, splitEV, splitHandEV } from '../ev';
+import { evaluate } from '../decide';
+import { splitEV, splitHandEV } from '../ev';
 import { createShoe, drawFromShoe, toCounts } from '../shoe';
 import { DEFAULT_RULES, type CardRank } from '../types';
 

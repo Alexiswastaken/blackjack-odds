@@ -1,4 +1,4 @@
-import type { Action, ActionEV, UnavailableReason } from '../engine/types';
+import type { Action, ActionEV, Outcome, UnavailableReason } from '../engine/types';
 import type { DecisionState } from '../hooks/useDecision';
 import { useT, type Translator } from '../i18n';
 import { formatEV, formatNumber, formatPercent } from './cardLabels';
@@ -20,6 +20,42 @@ function reasonText(reason: UnavailableReason | undefined, { t }: Translator): s
     return t('action.unavailable.doubleLimited', { rule: reason.rule });
   }
   return t(`action.unavailable.${reason.code}` as const);
+}
+
+/**
+ * Répartition gain / égalité / perte.
+ *
+ * Affichée à côté de l'EV parce que les deux ne disent pas la même chose : une
+ * action peut rapporter davantage sans gagner plus souvent.
+ */
+function OutcomeStrip({ outcome, translator }: { outcome: Outcome; translator: Translator }) {
+  const { t, language } = translator;
+  const parts = [
+    { value: outcome.win, className: 'bg-accent' },
+    { value: outcome.push, className: 'bg-ink-faint' },
+    { value: outcome.lose, className: 'bg-danger' },
+  ];
+
+  return (
+    <div className="mt-2">
+      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-track">
+        {parts.map((part, index) => (
+          <div
+            key={index}
+            className={part.className}
+            style={{ width: `${Math.max(0, part.value) * 100}%` }}
+          />
+        ))}
+      </div>
+      <div className="tabular mt-1 text-[11px] text-ink-subtle">
+        {t('outcome.summary', {
+          win: formatPercent(outcome.win, language, 1),
+          push: formatPercent(outcome.push, language, 1),
+          lose: formatPercent(outcome.lose, language, 1),
+        })}
+      </div>
+    </div>
+  );
 }
 
 function EVRow({
@@ -63,17 +99,20 @@ function EVRow({
       </div>
 
       {action.available ? (
-        <div className="relative mt-2 h-1.5 w-full rounded-full bg-track">
-          <div className="absolute top-0 left-1/2 h-full w-px bg-line-strong" />
-          <div
-            className={`absolute top-0 h-full rounded-full ${action.ev >= 0 ? 'bg-accent' : 'bg-danger'}`}
-            style={
-              action.ev >= 0
-                ? { left: '50%', width: `${magnitude}%` }
-                : { right: '50%', width: `${magnitude}%` }
-            }
-          />
-        </div>
+        <>
+          <div className="relative mt-2 h-1.5 w-full rounded-full bg-track">
+            <div className="absolute top-0 left-1/2 h-full w-px bg-line-strong" />
+            <div
+              className={`absolute top-0 h-full rounded-full ${action.ev >= 0 ? 'bg-accent' : 'bg-danger'}`}
+              style={
+                action.ev >= 0
+                  ? { left: '50%', width: `${magnitude}%` }
+                  : { right: '50%', width: `${magnitude}%` }
+              }
+            />
+          </div>
+          <OutcomeStrip outcome={action.outcome} translator={translator} />
+        </>
       ) : (
         <div className="mt-1 text-[11px] text-ink-subtle">
           {reasonText(action.unavailableReason, translator)}
@@ -146,6 +185,12 @@ export function DecisionResultPanel({
           <EVRow key={action.action} action={action} best={bestEV} translator={translator} />
         ))}
       </div>
+
+      <p className="px-1 text-[11px] leading-relaxed text-ink-faint">{t('outcome.evNote')}</p>
+
+      {result.actions.some((a) => a.action === 'split' && a.available) && (
+        <p className="px-1 text-[11px] leading-relaxed text-ink-faint">{t('outcome.splitNote')}</p>
+      )}
 
       <Panel>
         <SectionTitle>{t('decision.bust.title')}</SectionTitle>

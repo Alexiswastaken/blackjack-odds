@@ -1,21 +1,23 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fullShoeSize, useGameStore, MAX_PLAYERS } from '../useGameStore';
+import { fullShoeSize, useGameStore, MAX_PLAYERS, type CardOrigin } from '../useGameStore';
 import type { CardRank } from '../../engine/types';
 
 const store = () => useGameStore.getState();
 
-function play(rank: CardRank, origin: Parameters<ReturnType<typeof store>['playCard']>[1]) {
+function play(rank: CardRank, origin: CardOrigin) {
   store().playCard(rank, origin);
 }
+
+const mine = (hand = 0): CardOrigin => ({ kind: 'solo-player', hand });
 
 beforeEach(() => {
   useGameStore.getState().resetAll();
 });
 
 describe('mémoire du sabot', () => {
-  it('décrémente le sabot quelle que soit l\'origine de la carte', () => {
+  it("décrémente le sabot quelle que soit l'origine de la carte", () => {
     play('T', { kind: 'shoe' });
-    play('9', { kind: 'solo-player' });
+    play('9', mine());
     play('A', { kind: 'multi-seat', seat: 1 });
 
     const { shoe, history } = store();
@@ -27,12 +29,12 @@ describe('mémoire du sabot', () => {
   });
 
   it('conserve toutes les cartes vues, y compris après un changement de main', () => {
-    play('T', { kind: 'solo-player' });
-    play('6', { kind: 'solo-player' });
+    play('T', mine());
+    play('6', mine());
     store().clearHand();
 
     // La main est vidée mais les cartes restent sorties : elles ont été distribuées.
-    expect(store().playerCards).toEqual([]);
+    expect(store().playerHands).toEqual([[]]);
     expect(store().history).toHaveLength(2);
     expect(store().shoe.remaining.T).toBe(95);
   });
@@ -46,23 +48,142 @@ describe('mémoire du sabot', () => {
   });
 });
 
+describe('main du croupier', () => {
+  it('accepte la carte cachée et tous ses tirages, pas seulement la carte visible', () => {
+    play('6', { kind: 'solo-dealer' });
+    play('T', { kind: 'solo-dealer' });
+    play('5', { kind: 'solo-dealer' });
+
+    expect(store().dealerCards).toEqual(['6', 'T', '5']);
+    expect(store().shoe.remaining['6']).toBe(23);
+    expect(store().shoe.remaining.T).toBe(95);
+    expect(store().shoe.remaining['5']).toBe(23);
+    expect(store().shoe.totalRemaining).toBe(fullShoeSize(6) - 3);
+  });
+
+  it('vaut aussi pour la table multi-joueurs', () => {
+    play('6', { kind: 'multi-dealer' });
+    play('T', { kind: 'multi-dealer' });
+    play('9', { kind: 'multi-dealer' });
+
+    expect(store().multi.dealerCards).toEqual(['6', 'T', '9']);
+    expect(store().shoe.totalRemaining).toBe(fullShoeSize(6) - 3);
+  });
+
+  it('rend les cartes du croupier une par une à l\'annulation', () => {
+    play('6', { kind: 'solo-dealer' });
+    play('T', { kind: 'solo-dealer' });
+
+    store().undo();
+    expect(store().dealerCards).toEqual(['6']);
+    expect(store().shoe.remaining.T).toBe(96);
+
+    store().undo();
+    expect(store().dealerCards).toEqual([]);
+    expect(store().shoe.totalRemaining).toBe(fullShoeSize(6));
+  });
+});
+
+describe('split', () => {
+  it('sépare une paire en deux mains sans toucher au sabot', () => {
+    play('8', mine());
+    play('8', mine());
+    const remainingBefore = store().shoe.totalRemaining;
+
+    store().splitHand();
+
+    expect(store().playerHands).toEqual([['8'], ['8']]);
+    expect(store().isSplit).toBe(true);
+    expect(store().activeHand).toBe(0);
+    expect(store().shoe.totalRemaining).toBe(remainingBefore);
+  });
+
+  it('suit chaque main séparément', () => {
+    play('8', mine());
+    play('8', mine());
+    store().splitHand();
+
+    play('3', mine(0));
+    store().setActiveHand(1);
+    play('T', mine(1));
+
+    expect(store().playerHands).toEqual([['8', '3'], ['8', 'T']]);
+    expect(store().shoe.remaining['3']).toBe(23);
+    expect(store().shoe.remaining.T).toBe(95);
+  });
+
+  it('annule la carte de la bonne main', () => {
+    play('8', mine());
+    play('8', mine());
+    store().splitHand();
+    play('3', mine(0));
+    play('T', mine(1));
+
+    store().undo();
+    expect(store().playerHands).toEqual([['8', '3'], ['8']]);
+
+    store().undo();
+    expect(store().playerHands).toEqual([['8'], ['8']]);
+  });
+
+  it('refuse de splitter ce qui n\'est pas une paire', () => {
+    play('8', mine());
+    play('9', mine());
+    store().splitHand();
+
+    expect(store().isSplit).toBe(false);
+    expect(store().playerHands).toEqual([['8', '9']]);
+  });
+
+  it('refuse de re-splitter', () => {
+    play('8', mine());
+    play('8', mine());
+    store().splitHand();
+    store().splitHand();
+
+    expect(store().playerHands).toHaveLength(2);
+  });
+
+  it('borne la main active au domaine existant', () => {
+    store().setActiveHand(5);
+    expect(store().activeHand).toBe(0);
+  });
+
+  it('ignore une carte destinée à une main inexistante', () => {
+    play('T', mine(3));
+    expect(store().history).toEqual([]);
+    expect(store().shoe.remaining.T).toBe(96);
+  });
+
+  it('est remis à plat par la main suivante', () => {
+    play('8', mine());
+    play('8', mine());
+    store().splitHand();
+    store().clearHand();
+
+    expect(store().playerHands).toEqual([[]]);
+    expect(store().isSplit).toBe(false);
+    expect(store().activeHand).toBe(0);
+  });
+});
+
 describe('annulation', () => {
   it('remet la carte dans le sabot et libère la place correspondante', () => {
-    play('T', { kind: 'solo-player' });
+    play('T', mine());
     play('5', { kind: 'solo-dealer' });
 
     store().undo();
-    expect(store().dealerUpcard).toBeNull();
+    expect(store().dealerCards).toEqual([]);
     expect(store().shoe.remaining['5']).toBe(24);
 
     store().undo();
-    expect(store().playerCards).toEqual([]);
+    expect(store().playerHands).toEqual([[]]);
     expect(store().shoe.remaining.T).toBe(96);
     expect(store().shoe.totalRemaining).toBe(fullShoeSize(6));
   });
 
   it('remet la carte dans le sabot même si la main a déjà été vidée', () => {
-    play('T', { kind: 'solo-player' });
+    play('T', mine());
     store().clearHand();
 
     store().undo();
@@ -85,27 +206,8 @@ describe('annulation', () => {
   });
 });
 
-describe('carte visible du croupier', () => {
-  it("n'accepte qu'une seule carte à la fois", () => {
-    play('T', { kind: 'solo-dealer' });
-    play('5', { kind: 'solo-dealer' });
-
-    expect(store().dealerUpcard).toBe('T');
-    expect(store().history).toHaveLength(1);
-    expect(store().shoe.remaining['5']).toBe(24);
-  });
-
-  it('vaut aussi pour la table multi-joueurs', () => {
-    play('6', { kind: 'multi-dealer' });
-    play('7', { kind: 'multi-dealer' });
-
-    expect(store().multi.dealerUpcard).toBe('6');
-    expect(store().history).toHaveLength(1);
-  });
-});
-
 describe('nombre de jeux', () => {
-  it('accepte n\'importe quelle valeur du domaine et recrée le sabot', () => {
+  it("accepte n'importe quelle valeur du domaine et recrée le sabot", () => {
     for (const decks of [1, 3, 5, 12]) {
       store().setDecks(decks);
       expect(store().shoe.decks).toBe(decks);
@@ -174,7 +276,7 @@ describe('table multi-joueurs', () => {
 
     store().clearRound();
     expect(store().multi.hands[0]).toEqual([]);
-    expect(store().multi.dealerUpcard).toBeNull();
+    expect(store().multi.dealerCards).toEqual([]);
     expect(store().shoe.remaining.T).toBe(95);
     expect(store().history).toHaveLength(2);
   });
@@ -189,6 +291,8 @@ describe('nouveau sabot', () => {
     store().newShoe();
     expect(store().shoe.totalRemaining).toBe(fullShoeSize(6));
     expect(store().history).toEqual([]);
+    expect(store().playerHands).toEqual([[]]);
+    expect(store().dealerCards).toEqual([]);
     expect(store().rules.soft17).toBe('H17');
     expect(store().settings.language).toBe('en');
   });

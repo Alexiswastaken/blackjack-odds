@@ -19,7 +19,7 @@ export const MAX_PLAYERS = 7;
  */
 export type CardOrigin =
   | { kind: 'shoe' }
-  | { kind: 'solo-player' }
+  | { kind: 'solo-player'; hand: number }
   | { kind: 'solo-dealer' }
   | { kind: 'multi-seat'; seat: number }
   | { kind: 'multi-dealer' };
@@ -43,7 +43,8 @@ export interface MultiTable {
   mySeat: number;
   activeTarget: MultiTarget;
   hands: CardRank[][];
-  dealerUpcard: CardRank | null;
+  /** Main complète du croupier : la première carte est la carte visible. */
+  dealerCards: CardRank[];
 }
 
 interface GameState {
@@ -54,9 +55,12 @@ interface GameState {
   /** Incrémenté à chaque nouveau sabot : sert à vider les caches du Worker. */
   shoeGeneration: number;
 
-  playerCards: CardRank[];
-  dealerUpcard: CardRank | null;
-  isSplitHand: boolean;
+  /** Une main, ou deux après un split. */
+  playerHands: CardRank[][];
+  activeHand: number;
+  isSplit: boolean;
+  /** Main complète du croupier : la première carte est la carte visible. */
+  dealerCards: CardRank[];
 
   multi: MultiTable;
   settings: Settings;
@@ -68,8 +72,8 @@ interface GameState {
   setRules: (rules: Partial<Rules>) => void;
 
   clearHand: () => void;
-  setIsSplitHand: (isSplit: boolean) => void;
-  startSplitHand: () => void;
+  splitHand: () => void;
+  setActiveHand: (index: number) => void;
 
   setPlayerCount: (count: number) => void;
   setMySeat: (seat: number) => void;
@@ -87,7 +91,7 @@ function emptyTable(playerCount = 3): MultiTable {
     mySeat: 0,
     activeTarget: { kind: 'seat', seat: 0 },
     hands: Array.from({ length: playerCount }, () => []),
-    dealerUpcard: null,
+    dealerCards: [],
   };
 }
 
@@ -96,12 +100,19 @@ function clearedTable(table: MultiTable): MultiTable {
   return {
     ...table,
     hands: table.hands.map(() => []),
-    dealerUpcard: null,
+    dealerCards: [],
     activeTarget: { kind: 'seat', seat: table.mySeat },
   };
 }
 
 const DEFAULT_SETTINGS: Settings = { language: 'fr', theme: 'dark' };
+
+const EMPTY_SOLO = {
+  playerHands: [[]] as CardRank[][],
+  activeHand: 0,
+  isSplit: false,
+  dealerCards: [] as CardRank[],
+};
 
 export const useGameStore = create<GameState>()(
   persist(
@@ -111,10 +122,7 @@ export const useGameStore = create<GameState>()(
       history: [],
       shoeGeneration: 0,
 
-      playerCards: [],
-      dealerUpcard: null,
-      isSplitHand: false,
-
+      ...EMPTY_SOLO,
       multi: emptyTable(),
       settings: DEFAULT_SETTINGS,
 
@@ -126,10 +134,7 @@ export const useGameStore = create<GameState>()(
       playCard: (rank, origin) => {
         const state = get();
         if (state.shoe.remaining[rank] <= 0) return;
-
-        // Une seule carte visible du croupier : il faut annuler pour la changer.
-        if (origin.kind === 'solo-dealer' && state.dealerUpcard !== null) return;
-        if (origin.kind === 'multi-dealer' && state.multi.dealerUpcard !== null) return;
+        if (origin.kind === 'solo-player' && !state.playerHands[origin.hand]) return;
         if (origin.kind === 'multi-seat' && !state.multi.hands[origin.seat]) return;
 
         const next: Partial<GameState> = {
@@ -137,10 +142,16 @@ export const useGameStore = create<GameState>()(
           history: [...state.history, { rank, origin }],
         };
 
-        if (origin.kind === 'solo-player') next.playerCards = [...state.playerCards, rank];
-        if (origin.kind === 'solo-dealer') next.dealerUpcard = rank;
+        if (origin.kind === 'solo-player') {
+          next.playerHands = state.playerHands.map((hand, index) =>
+            index === origin.hand ? [...hand, rank] : hand,
+          );
+        }
+        // Le croupier reçoit autant de cartes qu'il en tire : la carte visible,
+        // puis la carte cachée révélée et tous ses tirages.
+        if (origin.kind === 'solo-dealer') next.dealerCards = [...state.dealerCards, rank];
         if (origin.kind === 'multi-dealer') {
-          next.multi = { ...state.multi, dealerUpcard: rank };
+          next.multi = { ...state.multi, dealerCards: [...state.multi.dealerCards, rank] };
         }
         if (origin.kind === 'multi-seat') {
           next.multi = {
@@ -173,25 +184,24 @@ export const useGameStore = create<GameState>()(
         };
 
         const { origin, rank } = last;
-        if (
-          origin.kind === 'solo-player' &&
-          state.playerCards[state.playerCards.length - 1] === rank
-        ) {
-          next.playerCards = state.playerCards.slice(0, -1);
-        } else if (origin.kind === 'solo-dealer' && state.dealerUpcard === rank) {
-          next.dealerUpcard = null;
-        } else if (origin.kind === 'multi-dealer' && state.multi.dealerUpcard === rank) {
-          next.multi = { ...state.multi, dealerUpcard: null };
-        } else if (origin.kind === 'multi-seat') {
-          const hand = state.multi.hands[origin.seat];
-          if (hand && hand[hand.length - 1] === rank) {
-            next.multi = {
-              ...state.multi,
-              hands: state.multi.hands.map((h, index) =>
-                index === origin.seat ? h.slice(0, -1) : h,
-              ),
-            };
-          }
+        const endsWith = (cards: CardRank[] | undefined) =>
+          cards !== undefined && cards[cards.length - 1] === rank;
+
+        if (origin.kind === 'solo-player' && endsWith(state.playerHands[origin.hand])) {
+          next.playerHands = state.playerHands.map((hand, index) =>
+            index === origin.hand ? hand.slice(0, -1) : hand,
+          );
+        } else if (origin.kind === 'solo-dealer' && endsWith(state.dealerCards)) {
+          next.dealerCards = state.dealerCards.slice(0, -1);
+        } else if (origin.kind === 'multi-dealer' && endsWith(state.multi.dealerCards)) {
+          next.multi = { ...state.multi, dealerCards: state.multi.dealerCards.slice(0, -1) };
+        } else if (origin.kind === 'multi-seat' && endsWith(state.multi.hands[origin.seat])) {
+          next.multi = {
+            ...state.multi,
+            hands: state.multi.hands.map((hand, index) =>
+              index === origin.seat ? hand.slice(0, -1) : hand,
+            ),
+          };
         }
 
         set(next as GameState);
@@ -201,9 +211,7 @@ export const useGameStore = create<GameState>()(
         set((state) => ({
           shoe: createShoe(state.shoe.decks),
           history: [],
-          playerCards: [],
-          dealerUpcard: null,
-          isSplitHand: false,
+          ...EMPTY_SOLO,
           multi: clearedTable(state.multi),
           shoeGeneration: state.shoeGeneration + 1,
         })),
@@ -212,9 +220,7 @@ export const useGameStore = create<GameState>()(
         set((state) => ({
           shoe: createShoe(Math.min(MAX_DECKS, Math.max(MIN_DECKS, Math.round(decks)))),
           history: [],
-          playerCards: [],
-          dealerUpcard: null,
-          isSplitHand: false,
+          ...EMPTY_SOLO,
           multi: clearedTable(state.multi),
           shoeGeneration: state.shoeGeneration + 1,
         })),
@@ -222,21 +228,31 @@ export const useGameStore = create<GameState>()(
       setRules: (rules) => set((state) => ({ rules: { ...state.rules, ...rules } })),
 
       /** Passe à la main suivante. Les cartes déjà vues restent hors du sabot. */
-      clearHand: () => set({ playerCards: [], dealerUpcard: null, isSplitHand: false }),
-
-      setIsSplitHand: (isSplitHand) => set({ isSplitHand }),
+      clearHand: () => set({ ...EMPTY_SOLO }),
 
       /**
-       * Bascule sur l'une des deux mains d'un split : on ne garde qu'une carte
-       * de la paire. Le sabot n'est pas touché — les deux cartes en sont déjà
-       * sorties au moment de la distribution.
+       * Sépare une paire en deux mains, chacune gardant une carte.
+       *
+       * Le sabot n'est pas touché : les deux cartes en sont déjà sorties au
+       * moment de la distribution. Les deux mains sont ensuite suivies et
+       * conseillées séparément — elles se règlent indépendamment.
        */
-      startSplitHand: () =>
+      splitHand: () =>
         set((state) => {
-          const first = state.playerCards[0];
-          if (!first) return {};
-          return { playerCards: [first], isSplitHand: true };
+          if (state.isSplit || state.playerHands.length !== 1) return {};
+          const [hand] = state.playerHands;
+          if (hand.length !== 2 || hand[0] !== hand[1]) return {};
+          return {
+            playerHands: [[hand[0]], [hand[1]]],
+            activeHand: 0,
+            isSplit: true,
+          };
         }),
+
+      setActiveHand: (index) =>
+        set((state) => ({
+          activeHand: Math.min(state.playerHands.length - 1, Math.max(0, index)),
+        })),
 
       setPlayerCount: (count) =>
         set((state) => {
@@ -285,9 +301,7 @@ export const useGameStore = create<GameState>()(
           shoe: createShoe(6),
           rules: DEFAULT_RULES,
           history: [],
-          playerCards: [],
-          dealerUpcard: null,
-          isSplitHand: false,
+          ...EMPTY_SOLO,
           multi: emptyTable(),
           settings: DEFAULT_SETTINGS,
           shoeGeneration: state.shoeGeneration + 1,
@@ -295,43 +309,70 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: 'blackjack-odds',
-      version: 2,
+      version: 3,
       // Persiste l'état du sabot pour survivre à un rechargement accidentel.
       partialize: (state) => ({
         shoe: state.shoe,
         rules: state.rules,
         history: state.history,
         shoeGeneration: state.shoeGeneration,
-        playerCards: state.playerCards,
-        dealerUpcard: state.dealerUpcard,
-        isSplitHand: state.isSplitHand,
+        playerHands: state.playerHands,
+        activeHand: state.activeHand,
+        isSplit: state.isSplit,
+        dealerCards: state.dealerCards,
         multi: state.multi,
         settings: state.settings,
       }),
       migrate: (persisted, version) => {
-        const state = persisted as Partial<GameState> & {
-          history?: { rank: CardRank; origin: unknown }[];
-        };
+        const state = persisted as Record<string, unknown>;
 
         // v1 stockait l'origine sous forme de chaîne et ignorait la table multi.
         if (version < 2) {
           const legacy: Record<string, CardOrigin> = {
             shoe: { kind: 'shoe' },
-            player: { kind: 'solo-player' },
+            player: { kind: 'solo-player', hand: 0 },
             dealer: { kind: 'solo-dealer' },
           };
-          state.history = (state.history ?? []).map((entry) => ({
-            rank: entry.rank,
-            origin:
-              typeof entry.origin === 'string'
-                ? (legacy[entry.origin] ?? { kind: 'shoe' })
-                : (entry.origin as CardOrigin),
-          }));
+          state.history = ((state.history as { rank: CardRank; origin: unknown }[]) ?? []).map(
+            (entry) => ({
+              rank: entry.rank,
+              origin:
+                typeof entry.origin === 'string'
+                  ? (legacy[entry.origin] ?? { kind: 'shoe' })
+                  : (entry.origin as CardOrigin),
+            }),
+          );
           state.multi = emptyTable();
           state.settings = DEFAULT_SETTINGS;
         }
 
-        return state as GameState;
+        // v2 n'avait qu'une main de joueur et une seule carte de croupier.
+        if (version < 3) {
+          const legacyHand = (state.playerCards as CardRank[] | undefined) ?? [];
+          state.playerHands = [legacyHand];
+          state.activeHand = 0;
+          state.isSplit = Boolean(state.isSplitHand);
+          const upcard = state.dealerUpcard as CardRank | null | undefined;
+          state.dealerCards = upcard ? [upcard] : [];
+          delete state.playerCards;
+          delete state.isSplitHand;
+          delete state.dealerUpcard;
+
+          const multi = state.multi as (MultiTable & { dealerUpcard?: CardRank | null }) | undefined;
+          if (multi) {
+            multi.dealerCards = multi.dealerUpcard ? [multi.dealerUpcard] : [];
+            delete multi.dealerUpcard;
+          }
+
+          // L'historique v2 ne portait pas d'index de main.
+          state.history = ((state.history as HistoryEntry[]) ?? []).map((entry) =>
+            entry.origin.kind === 'solo-player'
+              ? { ...entry, origin: { kind: 'solo-player', hand: 0 } }
+              : entry,
+          );
+        }
+
+        return state as unknown as GameState;
       },
     },
   ),

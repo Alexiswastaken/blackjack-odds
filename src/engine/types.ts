@@ -91,12 +91,46 @@ export type UnavailableReason =
   | { code: 'notPair' }
   | { code: 'resplit' };
 
+/**
+ * Répartition exacte des issues d'une action. Les trois membres somment à 1.
+ *
+ * L'EV et ces probabilités répondent à deux questions différentes : doubler sur
+ * 11 a une EV bien plus élevée que rester, sans pour autant gagner beaucoup plus
+ * souvent — c'est la mise engagée qui change, pas la fréquence des victoires.
+ */
+export interface Outcome {
+  win: number;
+  push: number;
+  lose: number;
+}
+
 export interface ActionEV {
   action: Action;
   ev: number;
+  /**
+   * Probabilités de gain / égalité / perte de cette action, en jouant
+   * optimalement ensuite. Pour un split, il s'agit des issues d'*une* des deux
+   * mains — elles peuvent se solder différemment.
+   */
+  outcome: Outcome;
   /** `false` si l'action est interdite par les règles ou l'état de la main. */
   available: boolean;
   unavailableReason?: UnavailableReason;
+}
+
+/** Issue d'un tour déjà joué, une fois la main du croupier connue. */
+export type RoundResult = 'pending' | 'win' | 'lose' | 'push';
+
+export interface RoundSettlement {
+  result: RoundResult;
+  playerTotal: number;
+  dealerTotal: number;
+  playerBlackjack: boolean;
+  dealerBlackjack: boolean;
+  playerBust: boolean;
+  dealerBust: boolean;
+  /** Gain net en unités de mise : +1.5 pour un blackjack payé 3:2, −1, 0… */
+  payout: number;
 }
 
 export interface DecisionResult {

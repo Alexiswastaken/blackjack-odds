@@ -1,4 +1,4 @@
-import type { CacheStats, DealerOutcome, Rules } from './types';
+import type { CacheStats, DealerOutcome, Outcome, Rules } from './types';
 
 /**
  * Contexte de calcul : règles + caches + compteurs.
@@ -19,6 +19,8 @@ export interface EngineContext {
   dealerOutcome: Map<string, DealerOutcome>;
   /** Clé : `sabot|carteVisible|total|soft` — EV du meilleur jeu du joueur. */
   playerHit: Map<string, number>;
+  /** Mêmes clés — répartition gain / égalité / perte du meilleur jeu. */
+  playerHitOutcome: Map<string, Outcome>;
   hits: number;
   misses: number;
 }
@@ -29,6 +31,7 @@ export function createContext(rules: Rules): EngineContext {
     dealerPlay: new Map(),
     dealerOutcome: new Map(),
     playerHit: new Map(),
+    playerHitOutcome: new Map(),
     hits: 0,
     misses: 0,
   };
@@ -38,7 +41,11 @@ export function cacheStats(ctx: EngineContext): CacheStats {
   return {
     hits: ctx.hits,
     misses: ctx.misses,
-    size: ctx.dealerPlay.size + ctx.dealerOutcome.size + ctx.playerHit.size,
+    size:
+      ctx.dealerPlay.size +
+      ctx.dealerOutcome.size +
+      ctx.playerHit.size +
+      ctx.playerHitOutcome.size,
   };
 }
 
@@ -47,6 +54,7 @@ export function clearCaches(ctx: EngineContext): void {
   ctx.dealerPlay.clear();
   ctx.dealerOutcome.clear();
   ctx.playerHit.clear();
+  ctx.playerHitOutcome.clear();
   ctx.hits = 0;
   ctx.misses = 0;
 }
