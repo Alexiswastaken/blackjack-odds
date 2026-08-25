@@ -153,6 +153,9 @@ export function DecisionResultPanel({
   if (!result) return null;
 
   const bestEV = Math.max(...result.actions.filter((a) => a.available).map((a) => a.ev));
+  const recommendedAction = result.actions.find(
+    (a) => a.action === result.recommended && a.available,
+  );
   const outcomeLabels = [...DEALER_TOTAL_LABELS, t('decision.outcome.bust')];
 
   return (
@@ -168,8 +171,17 @@ export function DecisionResultPanel({
         <div className="text-[11px] tracking-wider text-accent-ink uppercase">
           {t(status === 'computing' ? 'decision.computing' : 'decision.recommended')}
         </div>
-        <div className="mt-1 text-3xl font-semibold text-accent-ink">
-          {result.isBlackjack ? t('decision.blackjack') : t(ACTION_KEY[result.recommended])}
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="text-3xl font-semibold text-accent-ink">
+            {result.isBlackjack ? t('decision.blackjack') : t(ACTION_KEY[result.recommended])}
+          </span>
+          {recommendedAction && (
+            <span className="tabular text-sm font-medium text-ink-muted">
+              {t('decision.recommended.win', {
+                percent: formatPercent(recommendedAction.outcome.win, language, 1),
+              })}
+            </span>
+          )}
         </div>
         <div className="tabular mt-2 text-sm text-ink-muted">
           {t('decision.summary', {

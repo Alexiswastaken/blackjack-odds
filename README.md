@@ -54,7 +54,8 @@ Vous renseignez votre main et la main du croupier. L'application affiche,
 - le total de votre main (avec indication *soft*) ;
 - la probabilité exacte de buster en tirant une carte ;
 - l'EV de chaque action disponible — Tirer, Rester, Doubler, Splitter ;
-- **les chances de gagner, d'égaliser et de perdre** de chacune de ces actions ;
+- **les chances de gagner, d'égaliser et de perdre** de chacune de ces actions,
+  celle de l'action recommandée étant reprise en tête du panneau ;
 - la distribution complète des issues du croupier (17, 18, 19, 20, 21, bust) ;
 - la recommandation, c'est-à-dire l'action d'EV maximale.
 
@@ -84,9 +85,17 @@ total du sabot, et la pénétration atteinte.
 ### Onglet 3 — Multi-joueurs
 
 La même décision, mais pour une table entière. Vous déclarez le nombre de joueurs
-(1 à 7), désignez votre place, puis saisissez les cartes de chacun. Toutes ces
-cartes sortent du sabot partagé, ce qui resserre les probabilités de votre propre
-main.
+(**jusqu'à 6**, six par défaut), désignez votre place, puis saisissez les cartes
+de chacun. Toutes ces cartes sortent du sabot partagé, ce qui resserre les
+probabilités de votre propre main.
+
+**Chaque place peut splitter sa paire**, pas seulement la vôtre : un bouton
+apparaît dès qu'une place tient une paire, et ses deux mains sont ensuite suivies
+séparément, avec leur propre sélecteur. C'est nécessaire pour la justesse du
+sabot — un joueur qui splitte tire deux fois plus de cartes.
+
+Comme dans l'onglet solo, le panneau bascule sur le règlement du tour dès que
+votre main est jouée jusqu'au bout.
 
 Les cartes des autres joueurs n'entrent dans le calcul que par ce canal — elles
 retirent des cartes du sabot — et c'est suffisant : leurs décisions n'ont aucun
@@ -433,8 +442,8 @@ dépend.
    pris comme un tout.
 
 **Ce qui n'est pas implémenté du tout :** l'abandon (*surrender*), l'assurance,
-et les paris annexes. Le re-split reste hors modèle, et la vue multi-joueurs
-suit une main par place — le split est géré dans l'onglet « Décision de jeu ».
+et les paris annexes. Le re-split reste hors modèle : une paire donne au plus
+deux mains, dans l'onglet solo comme à chaque place de la table.
 
 ---
 

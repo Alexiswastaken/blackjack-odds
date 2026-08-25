@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { fullShoeSize, useGameStore, MAX_PLAYERS, type CardOrigin } from '../useGameStore';
+import {
+  fullShoeSize,
+  useGameStore,
+  MAX_PLAYERS,
+  DEFAULT_PLAYERS,
+  type CardOrigin,
+} from '../useGameStore';
 import type { CardRank } from '../../engine/types';
 
 const store = () => useGameStore.getState();
@@ -9,6 +15,7 @@ function play(rank: CardRank, origin: CardOrigin) {
 }
 
 const mine = (hand = 0): CardOrigin => ({ kind: 'solo-player', hand });
+const seat = (index: number, hand = 0): CardOrigin => ({ kind: 'multi-seat', seat: index, hand });
 
 beforeEach(() => {
   useGameStore.getState().resetAll();
@@ -18,7 +25,7 @@ describe('mémoire du sabot', () => {
   it("décrémente le sabot quelle que soit l'origine de la carte", () => {
     play('T', { kind: 'shoe' });
     play('9', mine());
-    play('A', { kind: 'multi-seat', seat: 1 });
+    play('A', seat(1));
 
     const { shoe, history } = store();
     expect(shoe.totalRemaining).toBe(fullShoeSize(6) - 3);
@@ -192,11 +199,11 @@ describe('annulation', () => {
   });
 
   it('libère la bonne place en multi-joueurs', () => {
-    play('9', { kind: 'multi-seat', seat: 2 });
-    expect(store().multi.hands[2]).toEqual(['9']);
+    play('9', seat(2));
+    expect(store().multi.seats[2].hands[0]).toEqual(['9']);
 
     store().undo();
-    expect(store().multi.hands[2]).toEqual([]);
+    expect(store().multi.seats[2].hands[0]).toEqual([]);
     expect(store().shoe.remaining['9']).toBe(24);
   });
 
@@ -235,13 +242,19 @@ describe('nombre de jeux', () => {
 });
 
 describe('table multi-joueurs', () => {
+  it('compte six places par défaut', () => {
+    expect(DEFAULT_PLAYERS).toBe(6);
+    expect(store().multi.playerCount).toBe(6);
+    expect(store().multi.seats).toHaveLength(6);
+  });
+
   it('redimensionne les places en conservant les mains existantes', () => {
     store().setPlayerCount(4);
-    play('T', { kind: 'multi-seat', seat: 1 });
+    play('T', seat(1));
 
     store().setPlayerCount(6);
-    expect(store().multi.hands).toHaveLength(6);
-    expect(store().multi.hands[1]).toEqual(['T']);
+    expect(store().multi.seats).toHaveLength(6);
+    expect(store().multi.seats[1].hands[0]).toEqual(['T']);
   });
 
   it('borne le nombre de joueurs', () => {
@@ -253,9 +266,9 @@ describe('table multi-joueurs', () => {
   });
 
   it('ramène ma place et la cible active dans le domaine en rétrécissant', () => {
-    store().setPlayerCount(6);
-    store().setMySeat(5);
-    store().setActiveTarget({ kind: 'seat', seat: 5 });
+    store().setPlayerCount(MAX_PLAYERS);
+    store().setMySeat(MAX_PLAYERS - 1);
+    store().setActiveTarget({ kind: 'seat', seat: MAX_PLAYERS - 1 });
 
     store().setPlayerCount(2);
     expect(store().multi.mySeat).toBe(1);
@@ -264,21 +277,108 @@ describe('table multi-joueurs', () => {
 
   it('ignore une carte destinée à une place inexistante', () => {
     store().setPlayerCount(2);
-    play('T', { kind: 'multi-seat', seat: 5 });
+    play('T', seat(5));
 
     expect(store().history).toEqual([]);
     expect(store().shoe.remaining.T).toBe(96);
   });
 
   it('vide les mains du tour sans rendre les cartes au sabot', () => {
-    play('T', { kind: 'multi-seat', seat: 0 });
+    play('T', seat(0));
     play('6', { kind: 'multi-dealer' });
 
     store().clearRound();
-    expect(store().multi.hands[0]).toEqual([]);
+    expect(store().multi.seats[0].hands[0]).toEqual([]);
     expect(store().multi.dealerCards).toEqual([]);
     expect(store().shoe.remaining.T).toBe(95);
     expect(store().history).toHaveLength(2);
+  });
+});
+
+describe('split en multi-joueurs', () => {
+  it('permet à chaque place de splitter sa paire', () => {
+    for (const index of [0, 3, 5]) {
+      play('7', seat(index));
+      play('7', seat(index));
+      store().splitSeat(index);
+
+      expect(store().multi.seats[index].hands, `place ${index}`).toEqual([['7'], ['7']]);
+      expect(store().multi.seats[index].isSplit).toBe(true);
+    }
+    // Les autres places restent intactes.
+    expect(store().multi.seats[1].isSplit).toBe(false);
+  });
+
+  it('ne touche pas au sabot en splittant', () => {
+    play('9', seat(2));
+    play('9', seat(2));
+    const before = store().shoe.totalRemaining;
+
+    store().splitSeat(2);
+    expect(store().shoe.totalRemaining).toBe(before);
+  });
+
+  it('suit les deux mains d\'une place séparément', () => {
+    play('8', seat(1));
+    play('8', seat(1));
+    store().splitSeat(1);
+
+    play('3', seat(1, 0));
+    play('T', seat(1, 1));
+
+    expect(store().multi.seats[1].hands).toEqual([['8', '3'], ['8', 'T']]);
+  });
+
+  it('annule la carte de la bonne main d\'une place', () => {
+    play('8', seat(4));
+    play('8', seat(4));
+    store().splitSeat(4);
+    play('3', seat(4, 0));
+    play('T', seat(4, 1));
+
+    store().undo();
+    expect(store().multi.seats[4].hands).toEqual([['8', '3'], ['8']]);
+  });
+
+  it('refuse de splitter ce qui n\'est pas une paire, et de re-splitter', () => {
+    play('8', seat(0));
+    play('9', seat(0));
+    store().splitSeat(0);
+    expect(store().multi.seats[0].isSplit).toBe(false);
+
+    store().clearRound();
+    play('8', seat(0));
+    play('8', seat(0));
+    store().splitSeat(0);
+    store().splitSeat(0);
+    expect(store().multi.seats[0].hands).toHaveLength(2);
+  });
+
+  it('mémorise la main active de chaque place indépendamment', () => {
+    play('6', seat(0));
+    play('6', seat(0));
+    store().splitSeat(0);
+    play('6', seat(2));
+    play('6', seat(2));
+    store().splitSeat(2);
+
+    store().setSeatActiveHand(0, 1);
+    expect(store().multi.seats[0].activeHand).toBe(1);
+    expect(store().multi.seats[2].activeHand).toBe(0);
+  });
+
+  it('borne la main active au domaine de la place', () => {
+    store().setSeatActiveHand(0, 9);
+    expect(store().multi.seats[0].activeHand).toBe(0);
+  });
+
+  it('remet les places à plat au nouveau tour', () => {
+    play('8', seat(0));
+    play('8', seat(0));
+    store().splitSeat(0);
+
+    store().clearRound();
+    expect(store().multi.seats[0]).toEqual({ hands: [[]], isSplit: false, activeHand: 0 });
   });
 });
 

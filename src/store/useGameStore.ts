@@ -8,7 +8,8 @@ export type ThemeChoice = 'dark' | 'light' | 'system';
 
 export const MIN_DECKS = 1;
 export const MAX_DECKS = 12;
-export const MAX_PLAYERS = 7;
+export const MAX_PLAYERS = 6;
+export const DEFAULT_PLAYERS = 6;
 
 /**
  * D'où vient une carte cliquée.
@@ -21,7 +22,7 @@ export type CardOrigin =
   | { kind: 'shoe' }
   | { kind: 'solo-player'; hand: number }
   | { kind: 'solo-dealer' }
-  | { kind: 'multi-seat'; seat: number }
+  | { kind: 'multi-seat'; seat: number; hand: number }
   | { kind: 'multi-dealer' };
 
 export interface HistoryEntry {
@@ -37,14 +38,28 @@ export interface Settings {
 /** Cible courante des clics dans la vue multi-joueurs. */
 export type MultiTarget = { kind: 'seat'; seat: number } | { kind: 'dealer' };
 
+/**
+ * Une place à la table. Comme le joueur solo, elle peut splitter et se retrouver
+ * avec deux mains à suivre séparément.
+ */
+export interface MultiSeat {
+  hands: CardRank[][];
+  isSplit: boolean;
+  activeHand: number;
+}
+
 export interface MultiTable {
   playerCount: number;
   /** Index de votre propre place : c'est cette main qui est évaluée. */
   mySeat: number;
   activeTarget: MultiTarget;
-  hands: CardRank[][];
+  seats: MultiSeat[];
   /** Main complète du croupier : la première carte est la carte visible. */
   dealerCards: CardRank[];
+}
+
+function emptySeat(): MultiSeat {
+  return { hands: [[]], isSplit: false, activeHand: 0 };
 }
 
 interface GameState {
@@ -78,6 +93,8 @@ interface GameState {
   setPlayerCount: (count: number) => void;
   setMySeat: (seat: number) => void;
   setActiveTarget: (target: MultiTarget) => void;
+  splitSeat: (seat: number) => void;
+  setSeatActiveHand: (seat: number, hand: number) => void;
   clearRound: () => void;
 
   setLanguage: (language: Language) => void;
@@ -85,12 +102,12 @@ interface GameState {
   resetAll: () => void;
 }
 
-function emptyTable(playerCount = 3): MultiTable {
+function emptyTable(playerCount = DEFAULT_PLAYERS): MultiTable {
   return {
     playerCount,
     mySeat: 0,
     activeTarget: { kind: 'seat', seat: 0 },
-    hands: Array.from({ length: playerCount }, () => []),
+    seats: Array.from({ length: playerCount }, emptySeat),
     dealerCards: [],
   };
 }
@@ -99,9 +116,21 @@ function emptyTable(playerCount = 3): MultiTable {
 function clearedTable(table: MultiTable): MultiTable {
   return {
     ...table,
-    hands: table.hands.map(() => []),
+    seats: table.seats.map(emptySeat),
     dealerCards: [],
     activeTarget: { kind: 'seat', seat: table.mySeat },
+  };
+}
+
+/** Applique une transformation à une seule place, en laissant les autres intactes. */
+function mapSeat(
+  table: MultiTable,
+  seat: number,
+  update: (seat: MultiSeat) => MultiSeat,
+): MultiTable {
+  return {
+    ...table,
+    seats: table.seats.map((current, index) => (index === seat ? update(current) : current)),
   };
 }
 
@@ -135,7 +164,12 @@ export const useGameStore = create<GameState>()(
         const state = get();
         if (state.shoe.remaining[rank] <= 0) return;
         if (origin.kind === 'solo-player' && !state.playerHands[origin.hand]) return;
-        if (origin.kind === 'multi-seat' && !state.multi.hands[origin.seat]) return;
+        if (
+          origin.kind === 'multi-seat' &&
+          !state.multi.seats[origin.seat]?.hands[origin.hand]
+        ) {
+          return;
+        }
 
         const next: Partial<GameState> = {
           shoe: drawFromShoe(state.shoe, rank),
@@ -154,12 +188,12 @@ export const useGameStore = create<GameState>()(
           next.multi = { ...state.multi, dealerCards: [...state.multi.dealerCards, rank] };
         }
         if (origin.kind === 'multi-seat') {
-          next.multi = {
-            ...state.multi,
-            hands: state.multi.hands.map((hand, index) =>
-              index === origin.seat ? [...hand, rank] : hand,
+          next.multi = mapSeat(state.multi, origin.seat, (seat) => ({
+            ...seat,
+            hands: seat.hands.map((hand, index) =>
+              index === origin.hand ? [...hand, rank] : hand,
             ),
-          };
+          }));
         }
 
         set(next as GameState);
@@ -195,13 +229,16 @@ export const useGameStore = create<GameState>()(
           next.dealerCards = state.dealerCards.slice(0, -1);
         } else if (origin.kind === 'multi-dealer' && endsWith(state.multi.dealerCards)) {
           next.multi = { ...state.multi, dealerCards: state.multi.dealerCards.slice(0, -1) };
-        } else if (origin.kind === 'multi-seat' && endsWith(state.multi.hands[origin.seat])) {
-          next.multi = {
-            ...state.multi,
-            hands: state.multi.hands.map((hand, index) =>
-              index === origin.seat ? hand.slice(0, -1) : hand,
+        } else if (
+          origin.kind === 'multi-seat' &&
+          endsWith(state.multi.seats[origin.seat]?.hands[origin.hand])
+        ) {
+          next.multi = mapSeat(state.multi, origin.seat, (seat) => ({
+            ...seat,
+            hands: seat.hands.map((hand, index) =>
+              index === origin.hand ? hand.slice(0, -1) : hand,
             ),
-          };
+          }));
         }
 
         set(next as GameState);
@@ -257,9 +294,9 @@ export const useGameStore = create<GameState>()(
       setPlayerCount: (count) =>
         set((state) => {
           const playerCount = Math.min(MAX_PLAYERS, Math.max(1, Math.round(count)));
-          const hands = Array.from(
+          const seats = Array.from(
             { length: playerCount },
-            (_, index) => state.multi.hands[index] ?? [],
+            (_, index) => state.multi.seats[index] ?? emptySeat(),
           );
           const mySeat = Math.min(state.multi.mySeat, playerCount - 1);
           const active = state.multi.activeTarget;
@@ -267,7 +304,7 @@ export const useGameStore = create<GameState>()(
             multi: {
               ...state.multi,
               playerCount,
-              hands,
+              seats,
               mySeat,
               activeTarget:
                 active.kind === 'seat' && active.seat >= playerCount
@@ -287,6 +324,40 @@ export const useGameStore = create<GameState>()(
 
       setActiveTarget: (activeTarget) =>
         set((state) => ({ multi: { ...state.multi, activeTarget } })),
+
+      /**
+       * Sépare la paire d'une place en deux mains.
+       *
+       * Chaque joueur de la table peut splitter : ses deux mains sont suivies
+       * séparément, exactement comme celles du joueur solo. Le sabot n'est pas
+       * touché — les deux cartes en sont déjà sorties.
+       */
+      splitSeat: (seat) =>
+        set((state) => {
+          const target = state.multi.seats[seat];
+          if (!target || target.isSplit || target.hands.length !== 1) return {};
+          const [hand] = target.hands;
+          if (hand.length !== 2 || hand[0] !== hand[1]) return {};
+          return {
+            multi: mapSeat(state.multi, seat, () => ({
+              hands: [[hand[0]], [hand[1]]],
+              isSplit: true,
+              activeHand: 0,
+            })),
+          };
+        }),
+
+      setSeatActiveHand: (seat, hand) =>
+        set((state) => {
+          const target = state.multi.seats[seat];
+          if (!target) return {};
+          return {
+            multi: mapSeat(state.multi, seat, (current) => ({
+              ...current,
+              activeHand: Math.min(current.hands.length - 1, Math.max(0, hand)),
+            })),
+          };
+        }),
 
       clearRound: () => set((state) => ({ multi: clearedTable(state.multi) })),
 
@@ -309,7 +380,7 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: 'blackjack-odds',
-      version: 3,
+      version: 4,
       // Persiste l'état du sabot pour survivre à un rechargement accidentel.
       partialize: (state) => ({
         shoe: state.shoe,
@@ -358,7 +429,9 @@ export const useGameStore = create<GameState>()(
           delete state.isSplitHand;
           delete state.dealerUpcard;
 
-          const multi = state.multi as (MultiTable & { dealerUpcard?: CardRank | null }) | undefined;
+          const multi = state.multi as
+            | (MultiTable & { dealerUpcard?: CardRank | null })
+            | undefined;
           if (multi) {
             multi.dealerCards = multi.dealerUpcard ? [multi.dealerUpcard] : [];
             delete multi.dealerUpcard;
@@ -368,6 +441,40 @@ export const useGameStore = create<GameState>()(
           state.history = ((state.history as HistoryEntry[]) ?? []).map((entry) =>
             entry.origin.kind === 'solo-player'
               ? { ...entry, origin: { kind: 'solo-player', hand: 0 } }
+              : entry,
+          );
+        }
+
+        // v3 donnait une seule main par place : elles deviennent des places
+        // à part entière, capables de splitter.
+        if (version < 4) {
+          const multi = state.multi as
+            | (Omit<MultiTable, 'seats'> & { seats?: MultiSeat[]; hands?: CardRank[][] })
+            | undefined;
+
+          if (multi) {
+            const legacyHands = multi.hands ?? [];
+            multi.seats =
+              multi.seats ??
+              Array.from({ length: multi.playerCount ?? DEFAULT_PLAYERS }, (_, index) => ({
+                hands: [legacyHands[index] ?? []],
+                isSplit: false,
+                activeHand: 0,
+              }));
+            delete multi.hands;
+
+            // La table est passée de sept places à six.
+            multi.playerCount = Math.min(MAX_PLAYERS, multi.playerCount ?? DEFAULT_PLAYERS);
+            multi.seats = multi.seats.slice(0, multi.playerCount);
+            multi.mySeat = Math.min(multi.mySeat ?? 0, multi.playerCount - 1);
+            if (multi.activeTarget?.kind === 'seat' && multi.activeTarget.seat >= multi.playerCount) {
+              multi.activeTarget = { kind: 'seat', seat: multi.mySeat };
+            }
+          }
+
+          state.history = ((state.history as HistoryEntry[]) ?? []).map((entry) =>
+            entry.origin.kind === 'multi-seat' && (entry.origin as { hand?: number }).hand === undefined
+              ? { ...entry, origin: { ...entry.origin, hand: 0 } }
               : entry,
           );
         }
